@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live Projects Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://unpkg.com/@azure/msal-browser@2.38.3/lib/msal-browser.min.js" crossorigin="anonymous"></script>
+<style>
+  body {
+    font-family: Arial, Helvetica, sans-serif;
+    background: #f7f6f3;
+    color: #1a1a1a;
+    margin: 0;
+    padding: 2rem;
+  }
+  .container { max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 1.5rem; }
+  .metrics {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0,1fr));
+    gap: 12px;
+    margin-bottom: 2rem;
+  }
+  .metric-card {
+    background: #ffffff;
+    border: 1px solid #e3e1da;
+    border-radius: 8px;
+    padding: 1rem;
+  }
+  .metric-label { font-size: 13px; color: #6b6a64; margin: 0 0 4px; }
+  .metric-value { font-size: 22px; font-weight: 600; margin: 0; color: #c0322a; }
+  .charts-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin-bottom: 1.5rem;
+  }
+  .chart-block {
+    background: #ffffff;
+    border: 1px solid #e3e1da;
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+  }
+  .chart-title { font-size: 19.2px; font-weight: 600; margin: 0 0 4px; color: #c0322a; line-height: 1.3; }
+  .chart-hint { font-size: 12px; color: #9a988f; margin: 0 0 8px; }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-bottom: 8px;
+    font-size: 12px;
+    color: #6b6a64;
+  }
+  .legend span { display: flex; align-items: center; gap: 4px; }
+  .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .chart-wrap { position: relative; width: 100%; height: 220px; }
+  .chart-wrap.tall { height: 260px; }
+  .table-panel {
+    display: none;
+    margin-bottom: 1.5rem;
+    background: #ffffff;
+    border: 1px solid #e3e1da;
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+  }
+  .table-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+  .table-title { font-size: 14px; font-weight: 600; margin: 0; }
+  .close-btn {
+    font-size: 12px;
+    padding: 4px 10px;
+    background: transparent;
+    border: 1px solid #d3d1c7;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .close-btn:hover { background: #f1efe8; }
+  .table-scroll { max-height: 380px; overflow-y: auto; }
+  table { width: 100%; font-size: 13px; border-collapse: collapse; }
+  th {
+    text-align: left;
+    padding: 6px 4px;
+    color: #6b6a64;
+    font-weight: 600;
+    border-bottom: 1px solid #e3e1da;
+  }
+  th.num, td.num { text-align: right; }
+  th.section-header {
+    text-align: right;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    border-bottom: none;
+    padding: 12px 4px 4px;
+    font-size: 12px;
+  }
+  td { padding: 6px 4px; border-bottom: 1px solid #ece9e1; }
+  tr.subtotal td { font-weight: 600; background: #f7f6f3; }
+  tr.grandtotal td { font-weight: 600; }
+  .section { margin-bottom: 1.5rem; }
+
+  /* Loading / error states */
+  #loadingOverlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(247,246,243,0.92);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    gap: 12px;
+  }
+  #loadingOverlay p { font-size: 14px; color: #6b6a64; margin: 0; }
+  .spinner {
+    width: 32px; height: 32px;
+    border: 3px solid #e3e1da;
+    border-top-color: #c0322a;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #errorBanner {
+    display: none;
+    background: #fff0ef;
+    border: 1px solid #f0b8b5;
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin-bottom: 1.5rem;
+    font-size: 13px;
+    color: #a0201a;
+  }
+  .last-updated {
+    font-size: 11px;
+    color: #9a988f;
+    margin: 0 0 1.5rem;
+  }
+  .refresh-btn {
+    font-size: 12px;
+    padding: 4px 12px;
+    background: transparent;
+    border: 1px solid #d3d1c7;
+    border-radius: 6px;
+    cursor: pointer;
+    margin-left: 10px;
+  }
+  .refresh-btn:hover { background: #f1efe8; }
+</style>
+</head>
+<body>
+
+<div id="loadingOverlay">
+  <div class="spinner"></div>
+  <p id="loadingMsg">Signing in to Microsoft 365...</p>
+</div>
+
+<div class="container">
+  <h1>Live Projects Dashboard</h1>
+  <div id="errorBanner"></div>
+  <p class="last-updated" id="lastUpdated"></p>
+
+  <div class="metrics">
+    <div class="metric-card">
+      <p class="metric-label">Total Contract Value</p>
+      <p class="metric-value" id="metricTCV">—</p>
+    </div>
+    <div class="metric-card">
+      <p class="metric-label">Invoiced</p>
+      <p class="metric-value" id="metricInvoiced">—</p>
+    </div>
+    <div class="metric-card">
+      <p class="metric-label">Remaining to Invoice</p>
+      <p class="metric-value" id="metricRemaining">—</p>
+    </div>
+    <div class="metric-card">
+      <p class="metric-label">Live Jobs</p>
+      <p class="metric-value" id="metricJobs">—</p>
+    </div>
+  </div>
+
+  <div class="charts-row">
+    <div class="chart-block">
+      <p class="chart-title">Invoiced vs Remaining to Invoice</p>
+      <p class="chart-hint">Click a slice for the project list</p>
+      <div class="legend">
+        <span><span class="swatch" style="background:#888780; border:0.5px solid #e3e1da;"></span><span id="lgInvoiced">Invoiced</span></span>
+        <span><span class="swatch" style="background:#ffffff; border:0.5px solid #c7c5bc;"></span><span id="lgRemaining">Remaining</span></span>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="chartInvoiced"></canvas>
+      </div>
+    </div>
+
+    <div class="chart-block">
+      <p class="chart-title">Remaining to Invoice<br>by Construction Readiness</p>
+      <p class="chart-hint">Click a slice for the project list</p>
+      <div class="legend">
+        <span><span class="swatch" style="background:#1a1a1a;"></span><span id="lgReady">Ready</span></span>
+        <span><span class="swatch" style="background:#c0322a;"></span><span id="lgNotReady">Not ready</span></span>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="chartRemainingReadiness"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div id="tablePanelTop" class="table-panel">
+    <div class="table-header">
+      <p id="tableTitleTop" class="table-title">Projects</p>
+      <button id="closeTableTop" class="close-btn">Close</button>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Project</th><th class="num">Value</th></tr></thead>
+        <tbody id="tableBodyTop"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="section chart-block">
+    <p class="chart-title">All Live Jobs: Remaining to Invoice by Program Week Duration</p>
+    <p class="chart-hint">Hover for total and percent. Click a slice to split it by readiness and open the project list</p>
+    <div class="legend" id="weekLegend">
+      <span><span class="swatch" style="background:#e6e5e0; border:0.5px solid #e3e1da;"></span>0&ndash;13 wk <span id="lgW1">—</span></span>
+      <span><span class="swatch" style="background:#c7c5bc;"></span>14&ndash;26 wk <span id="lgW2">—</span></span>
+      <span><span class="swatch" style="background:#a3a199;"></span>27&ndash;39 wk <span id="lgW3">—</span></span>
+      <span><span class="swatch" style="background:#7a786f;"></span>40&ndash;52 wk <span id="lgW4">—</span></span>
+      <span><span class="swatch" style="background:#4f4e48;"></span>53&ndash;65 wk <span id="lgW5">—</span></span>
+      <span><span class="swatch" style="background:#1a1a1a;"></span>65+ wk <span id="lgW6">—</span></span>
+    </div>
+    <div class="chart-wrap tall">
+      <canvas id="chartReadyByWeek"></canvas>
+    </div>
+  </div>
+
+  <div id="tablePanelBottom" class="table-panel">
+    <div class="table-header">
+      <p id="tableTitleBottom" class="table-title">Projects</p>
+      <button id="closeTableBottom" class="close-btn">Close</button>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Project</th><th class="num">Remaining to Invoice</th></tr></thead>
+        <tbody id="tableBodyBottom"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── CONFIG ──────────────────────────────────────────────────────────────────
+const CLIENT_ID  = 'f253ec61-a0ba-4b7c-a12b-5958f599f0b5';
+const TENANT_ID  = '6c46f55f-f0dd-4523-91b4-d438732db055';
+
+// SharePoint file identifiers (from MCP read)
+const DRIVE_ID   = 'b!5m9xRA4eekiD5JIlQaJrpjkhsaIpfYFDgoo69moSL8GPPMQNwLKDRJdbqxyqjCBK';
+const ITEM_ID    = '01FWFNWLHSD7SW6YNNIRH2DCRWJVBXIGC7';
+
+const SCOPES     = ['https://graph.microsoft.com/Files.Read', 'https://graph.microsoft.com/Sites.Read.All'];
+
+// ─── MSAL SETUP ──────────────────────────────────────────────────────────────
+const msalConfig = {
+  auth: {
+    clientId: CLIENT_ID,
+    authority: `https://login.microsoftonline.com/${TENANT_ID}`,
+    redirectUri: window.location.origin + window.location.pathname
+  },
+  cache: { cacheLocation: 'sessionStorage' }
+};
+const msalInstance = new msal.PublicClientApplication(msalConfig);
+
+// ─── CHART INSTANCES ─────────────────────────────────────────────────────────
+let invoicedChart, readinessChart, weekChart;
+let activeSplitIdx = null;
+let appData = {}; // holds computed data for drill-downs
+
+// ─── ENTRY POINT ─────────────────────────────────────────────────────────────
+async function init() {
+  await msalInstance.initialize();
+  setLoading('Signing in to Microsoft 365...');
+
+  // Handle redirect response first
+  await msalInstance.handleRedirectPromise();
+
+  let account = msalInstance.getAllAccounts()[0];
+  if (!account) {
+    // Trigger login redirect
+    await msalInstance.loginRedirect({ scopes: SCOPES });
+    return;
+  }
+
+  setLoading('Fetching project data from SharePoint...');
+  try {
+    const token = await getToken(account);
+    const rows  = await fetchExcelData(token);
+    const data  = processRows(rows);
+    renderDashboard(data);
+    hideLoading();
+    document.getElementById('lastUpdated').textContent =
+      'Last refreshed: ' + new Date().toLocaleString('en-AU') +
+      ' — data live from SharePoint';
+  } catch (err) {
+    hideLoading();
+    showError('Failed to load data: ' + err.message);
+    console.error(err);
+  }
+}
+
+// ─── AUTH ─────────────────────────────────────────────────────────────────────
+async function getToken(account) {
+  try {
+    const result = await msalInstance.acquireTokenSilent({ scopes: SCOPES, account });
+    return result.accessToken;
+  } catch {
+    const result = await msalInstance.acquireTokenPopup({ scopes: SCOPES });
+    return result.accessToken;
+  }
+}
+
+// ─── FETCH EXCEL VIA GRAPH API ────────────────────────────────────────────────
+async function fetchExcelData(token) {
+  // Read the used range of the first worksheet
+  const url = `https://graph.microsoft.com/v1.0/drives/${DRIVE_ID}/items/${ITEM_ID}/workbook/worksheets/Live%20Projects/usedRange`;
+  const res  = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+  if (!res.ok) {
+    // Try default sheet name fallback
+    const url2 = `https://graph.microsoft.com/v1.0/drives/${DRIVE_ID}/items/${ITEM_ID}/workbook/worksheets/Live%20Projects/usedRange`;
+    const res2  = await fetch(url2, { headers: { Authorization: 'Bearer ' + token } });
+    if (!res2.ok) throw new Error(`Graph API error ${res.status}`);
+    const d2 = await res2.json();
+    return d2.values;
+  }
+  const d = await res.json();
+  return d.values;
+}
+
+// ─── DATA PROCESSING ──────────────────────────────────────────────────────────
+function processRows(values) {
+  // Find header row — look for "Job" in column 0
+  let headerIdx = -1;
+  for (let i = 0; i < values.length; i++) {
+    const cell = String(values[i][0]).trim().toLowerCase();
+    if (cell === 'job') { headerIdx = i; break; }
+  }
+  if (headerIdx < 0) throw new Error('Could not find header row with "Job" column');
+
+  const headers = values[headerIdx].map(h => String(h).trim().toLowerCase());
+  const colJob      = headers.findIndex(h => h === 'job');
+  const colReady    = headers.findIndex(h => h.includes('consct') || h.includes('ready'));
+  const colWeek     = headers.findIndex(h => h.includes('week'));
+  const colTotal    = headers.findIndex(h => h.includes('total value') || h === 'total value');
+  const colInvoiced = headers.findIndex(h => h === 'invoiced');
+  const colRemain   = headers.findIndex(h => h.includes('remaining'));
+
+  // Fallback column indices based on known structure
+  // Job=0, State=1, Ready=2, AwardDate=3, Week=4, Phase=5, TotalValue=6, Invoiced=7, InvoicedPct=8, Remaining=9
+  const C = {
+    job:      colJob      >= 0 ? colJob      : 0,
+    ready:    colReady    >= 0 ? colReady    : 2,
+    week:     colWeek     >= 0 ? colWeek     : 4,
+    total:    colTotal    >= 0 ? colTotal    : 6,
+    invoiced: colInvoiced >= 0 ? colInvoiced : 7,
+    remain:   colRemain   >= 0 ? colRemain   : 9
+  };
+
+  const projects = [];
+
+  for (let i = headerIdx + 1; i < values.length; i++) {
+    const row = values[i];
+    const job = String(row[C.job] || '').trim();
+
+    // Stop at TOTAL row or empty job
+    if (!job || job.toUpperCase().startsWith('TOTAL') || job.toUpperCase().startsWith('COMPLETED')) break;
+
+    const ready    = String(row[C.ready] || '').trim().toUpperCase();
+    const week     = parseFloat(row[C.week]) || 0;
+    const total    = parseFloat(row[C.total]) || 0;
+    const invoiced = parseFloat(row[C.invoiced]) || 0;
+    const remain   = parseFloat(row[C.remain]) || 0;
+
+    // Strip job number prefix for display (e.g. "J3268 - Hitachi..." → "Hitachi...")
+    const name = job.replace(/^J\d+\s*-\s*/i, '').trim();
+
+    projects.push({ name, ready: ready === 'Y', week, total, invoiced, remain });
+  }
+
+  if (projects.length === 0) throw new Error('No live project rows found — check sheet name or column structure');
+
+  // Compute aggregates
+  const totalTCV      = projects.reduce((s, p) => s + p.total, 0);
+  const totalInvoiced = projects.reduce((s, p) => s + p.invoiced, 0);
+  const totalRemain   = projects.reduce((s, p) => s + p.remain, 0);
+
+  // Project lists for top pie charts
+  const invoicedList  = [...projects].sort((a,b) => b.invoiced - a.invoiced).map(p => [p.name, p.invoiced]);
+  const remainList    = [...projects].sort((a,b) => b.remain - a.remain).map(p => [p.name, p.remain]);
+  const readyList     = projects.filter(p => p.ready).sort((a,b) => b.remain - a.remain).map(p => [p.name, p.remain]);
+  const notReadyList  = projects.filter(p => !p.ready).sort((a,b) => b.remain - a.remain).map(p => [p.name, p.remain]);
+
+  // Readiness totals
+  const readyTotal    = projects.filter(p => p.ready).reduce((s,p) => s + p.remain, 0);
+  const notReadyTotal = projects.filter(p => !p.ready).reduce((s,p) => s + p.remain, 0);
+
+  // Week bands
+  const bands = [
+    { key: 'wk0_13',   min: 0,   max: 13  },
+    { key: 'wk14_26',  min: 14,  max: 26  },
+    { key: 'wk27_39',  min: 27,  max: 39  },
+    { key: 'wk40_52',  min: 40,  max: 52  },
+    { key: 'wk53_65',  min: 53,  max: 65  },
+    { key: 'wk65plus', min: 66,  max: Infinity }
+  ];
+
+  const weekSplit = {};
+  const baseTotals = [];
+
+  bands.forEach(b => {
+    const inBand = projects.filter(p => p.week >= b.min && p.week <= b.max);
+    const ready    = inBand.filter(p => p.ready).map(p => [p.name, p.remain]);
+    const notready = inBand.filter(p => !p.ready).map(p => [p.name, p.remain]);
+    const total    = inBand.reduce((s,p) => s + p.remain, 0);
+    weekSplit[b.key] = { ready, notready };
+    baseTotals.push(total);
+  });
+
+  return {
+    totalTCV, totalInvoiced, totalRemain,
+    jobCount: projects.length,
+    invoicedList, remainList, readyList, notReadyList,
+    readyTotal, notReadyTotal,
+    weekSplit, baseTotals
+  };
+}
+
+// ─── RENDER ───────────────────────────────────────────────────────────────────
+function renderDashboard(d) {
+  appData = d;
+
+  // Metric cards
+  document.getElementById('metricTCV').textContent      = fmtM(d.totalTCV);
+  document.getElementById('metricInvoiced').textContent  = fmtM(d.totalInvoiced);
+  document.getElementById('metricRemaining').textContent = fmtM(d.totalRemain);
+  document.getElementById('metricJobs').textContent      = d.jobCount;
+
+  // Legend labels
+  const invPct  = pct(d.totalInvoiced, d.totalTCV);
+  const remPct  = pct(d.totalRemain, d.totalTCV);
+  const rdyPct  = pct(d.readyTotal, d.totalRemain);
+  const nrdPct  = pct(d.notReadyTotal, d.totalRemain);
+  document.getElementById('lgInvoiced').textContent  = `Invoiced ${invPct}%`;
+  document.getElementById('lgRemaining').textContent = `Remaining ${remPct}%`;
+  document.getElementById('lgReady').textContent     = `Ready ${rdyPct}%`;
+  document.getElementById('lgNotReady').textContent  = `Not ready ${nrdPct}%`;
+
+  // Week band legend %
+  const weekTotal = d.baseTotals.reduce((s,v) => s+v, 0);
+  ['lgW1','lgW2','lgW3','lgW4','lgW5','lgW6'].forEach((id, i) => {
+    document.getElementById(id).textContent = weekTotal > 0
+      ? pct(d.baseTotals[i], weekTotal) + '%'
+      : '—';
+  });
+
+  // Destroy existing charts if re-rendering
+  if (invoicedChart)   invoicedChart.destroy();
+  if (readinessChart)  readinessChart.destroy();
+  if (weekChart)       weekChart.destroy();
+  activeSplitIdx = null;
+
+  // ── Invoiced vs Remaining pie ──
+  invoicedChart = new Chart(document.getElementById('chartInvoiced'), {
+    type: 'pie',
+    data: {
+      labels: ['Invoiced', 'Remaining to invoice'],
+      datasets: [{ data: [d.totalInvoiced, d.totalRemain], backgroundColor: ['#888780','#ffffff'], borderColor: ['#888780','#a3a199'], borderWidth: 1 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ctx.label + ': $' + Math.round(ctx.parsed).toLocaleString() } }
+      },
+      onClick: (evt) => {
+        const pts = invoicedChart.getElementsAtEventForMode(evt, 'nearest', { intersect: true }, false);
+        if (!pts.length) return;
+        if (pts[0].index === 0) showTable('tablePanelTop','tableTitleTop','tableBodyTop', appData.invoicedList, 'Invoiced Value by Project');
+        else showTable('tablePanelTop','tableTitleTop','tableBodyTop', appData.remainList, 'Remaining to Invoice by Project');
+      }
+    }
+  });
+
+  // ── Readiness pie ──
+  readinessChart = new Chart(document.getElementById('chartRemainingReadiness'), {
+    type: 'pie',
+    data: {
+      labels: ['Ready for construction', 'Not ready'],
+      datasets: [{ data: [d.readyTotal, d.notReadyTotal], backgroundColor: ['#1a1a1a','#c0322a'] }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ctx.label + ': $' + Math.round(ctx.parsed).toLocaleString() } }
+      },
+      onClick: (evt) => {
+        const pts = readinessChart.getElementsAtEventForMode(evt, 'nearest', { intersect: true }, false);
+        if (!pts.length) return;
+        if (pts[0].index === 0) showTable('tablePanelTop','tableTitleTop','tableBodyTop', appData.readyList, 'Remaining to Invoice — Ready Projects');
+        else showTable('tablePanelTop','tableTitleTop','tableBodyTop', appData.notReadyList, 'Remaining to Invoice — Not Ready Projects');
+      }
+    }
+  });
+
+  // ── Week band pie ──
+  weekChart = new Chart(document.getElementById('chartReadyByWeek'), {
+    type: 'pie',
+    data: buildCollapsedData(),
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => {
+          const total = ctx.dataset.data.reduce((a,b) => a+b, 0);
+          const p = total > 0 ? (ctx.parsed / total * 100).toFixed(1) : '0.0';
+          return ctx.label + ': $' + Math.round(ctx.parsed).toLocaleString() + ' (' + p + '%)';
+        }}}
+      },
+      onClick: (evt) => {
+        const pts = weekChart.getElementsAtEventForMode(evt, 'nearest', { intersect: true }, false);
+        if (!pts.length) return;
+        const clickedIdx = pts[0].index;
+        let origIdx;
+        if (activeSplitIdx !== null && weekChart.data.labels.length === 7) {
+          if (clickedIdx === activeSplitIdx || clickedIdx === activeSplitIdx + 1) origIdx = activeSplitIdx;
+          else if (clickedIdx < activeSplitIdx) origIdx = clickedIdx;
+          else origIdx = clickedIdx - 1;
+        } else {
+          origIdx = clickedIdx;
+        }
+        activeSplitIdx = origIdx;
+        weekChart.data = buildSplitData(origIdx);
+        weekChart.update();
+        setLegendGreyed(true);
+        const weekKeys   = ['wk0_13','wk14_26','wk27_39','wk40_52','wk53_65','wk65plus'];
+        const weekTitles = ['0-13 Weeks','14-26 Weeks','27-39 Weeks','40-52 Weeks','53-65 Weeks','65+ Weeks'];
+        showWeekTable(weekKeys[origIdx], weekTitles[origIdx] + ': Remaining to Invoice');
+      }
+    }
+  });
+}
+
+// ─── WEEK CHART HELPERS ───────────────────────────────────────────────────────
+const weekLabels   = ['0-13 weeks','14-26 weeks','27-39 weeks','40-52 weeks','53-65 weeks','65+ weeks'];
+const baseColors   = ['#e6e5e0','#c7c5bc','#a3a199','#7a786f','#4f4e48','#1a1a1a'];
+const READY_COLOR  = '#1a1a1a';
+const NOTREADY_COLOR = '#c0322a';
+const GREY_COLOR   = '#cfcdc6';
+
+function buildCollapsedData() {
+  return { labels: weekLabels.slice(), datasets: [{ data: appData.baseTotals.slice(), backgroundColor: baseColors.slice() }] };
+}
+
+function buildSplitData(splitIdx) {
+  const weekKeys = ['wk0_13','wk14_26','wk27_39','wk40_52','wk53_65','wk65plus'];
+  const split = appData.weekSplit[weekKeys[splitIdx]];
+  const readySum    = split.ready.reduce((s,[,v]) => s+v, 0);
+  const notReadySum = split.notready.reduce((s,[,v]) => s+v, 0);
+  const labels=[], data=[], colors=[];
+  for (let i=0; i<weekLabels.length; i++) {
+    if (i === splitIdx) {
+      labels.push(weekLabels[i]+' (ready)', weekLabels[i]+' (not ready)');
+      data.push(readySum, notReadySum);
+      colors.push(READY_COLOR, NOTREADY_COLOR);
+    } else {
+      labels.push(weekLabels[i]);
+      data.push(appData.baseTotals[i]);
+      colors.push(GREY_COLOR);
+    }
+  }
+  return { labels, datasets: [{ data, backgroundColor: colors }] };
+}
+
+function setLegendGreyed(greyed) {
+  document.getElementById('weekLegend').style.opacity = greyed ? '0.45' : '1';
+}
+
+// ─── TABLE HELPERS ────────────────────────────────────────────────────────────
+function showTable(panelId, titleId, bodyId, list, title) {
+  const panel = document.getElementById(panelId);
+  const body  = document.getElementById(bodyId);
+  document.getElementById(titleId).textContent = title;
+  body.innerHTML = '';
+  list.forEach(([name, val]) => {
+    const tr = document.createElement('tr');
+    const tdN = document.createElement('td'); tdN.textContent = name;
+    const tdV = document.createElement('td'); tdV.className = 'num';
+    tdV.textContent = '$' + Math.round(val).toLocaleString();
+    tr.appendChild(tdN); tr.appendChild(tdV); body.appendChild(tr);
+  });
+  panel.style.display = 'block';
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function showWeekTable(key, title) {
+  const panel = document.getElementById('tablePanelBottom');
+  const body  = document.getElementById('tableBodyBottom');
+  document.getElementById('tableTitleBottom').textContent = title;
+  body.innerHTML = '';
+
+  const data = appData.weekSplit[key];
+  const readySum    = data.ready.reduce((s,[,v]) => s+v, 0);
+  const notReadySum = data.notready.reduce((s,[,v]) => s+v, 0);
+  const grandTotal  = readySum + notReadySum;
+
+  addSectionHeader(body, 'Construction Ready');
+  data.ready.forEach(([name, val]) => addRow(body, name, val));
+  addRow(body, 'Ready Subtotal', readySum, { bold: true });
+
+  addSectionHeader(body, 'Not Ready');
+  if (data.notready.length === 0) addRow(body, 'No not-ready projects in this band', null);
+  else data.notready.forEach(([name, val]) => addRow(body, name, val));
+  addRow(body, 'Not Ready Subtotal', notReadySum, { bold: true });
+  addRow(body, 'Grand Total', grandTotal, { grand: true });
+
+  panel.style.display = 'block';
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function addRow(body, name, val, opts={}) {
+  const tr = document.createElement('tr');
+  if (opts.bold) tr.classList.add('subtotal');
+  if (opts.grand) tr.classList.add('grandtotal');
+  const tdN = document.createElement('td'); tdN.textContent = name;
+  const tdV = document.createElement('td'); tdV.className = 'num';
+  tdV.textContent = val === null ? '' : '$' + Math.round(val).toLocaleString();
+  tr.appendChild(tdN); tr.appendChild(tdV); body.appendChild(tr);
+}
+
+function addSectionHeader(body, text) {
+  const tr = document.createElement('tr');
+  const th = document.createElement('th');
+  th.colSpan = 2; th.className = 'section-header'; th.textContent = text;
+  tr.appendChild(th); body.appendChild(tr);
+}
+
+// ─── UI HELPERS ───────────────────────────────────────────────────────────────
+function setLoading(msg) {
+  document.getElementById('loadingMsg').textContent = msg;
+  document.getElementById('loadingOverlay').style.display = 'flex';
+}
+function hideLoading() {
+  document.getElementById('loadingOverlay').style.display = 'none';
+}
+function showError(msg) {
+  const el = document.getElementById('errorBanner');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+function fmtM(v) {
+  return '$' + (v / 1e6).toFixed(2) + 'M';
+}
+function pct(part, total) {
+  return total > 0 ? (part / total * 100).toFixed(1) : '0.0';
+}
+
+// ─── EVENT LISTENERS ──────────────────────────────────────────────────────────
+document.getElementById('closeTableTop').addEventListener('click', () => {
+  document.getElementById('tablePanelTop').style.display = 'none';
+});
+document.getElementById('closeTableBottom').addEventListener('click', () => {
+  document.getElementById('tablePanelBottom').style.display = 'none';
+  if (weekChart) { weekChart.data = buildCollapsedData(); weekChart.update(); }
+  setLegendGreyed(false);
+  activeSplitIdx = null;
+});
+
+// ─── START ────────────────────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>
