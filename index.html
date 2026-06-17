@@ -362,7 +362,9 @@ function processRows(values) {
     ready:    11,
     week:     13,
     status:   14,
-    total:    18,
+    colP:     15,
+    colQ:     16,
+    colR:     17,
     invoiced: 19,
     remain:   21
   };
@@ -378,7 +380,7 @@ function processRows(values) {
 
     const ready    = String(row[C.ready] || '').trim().toUpperCase();
     const week     = parseFloat(row[C.week]) || 0;
-    const total    = parseFloat(row[C.total]) || 0;
+    const total    = (parseFloat(row[C.colP]) || 0) + (parseFloat(row[C.colQ]) || 0) + (parseFloat(row[C.colR]) || 0);
     const invoiced = parseFloat(row[C.invoiced]) || 0;
     const remain   = parseFloat(row[C.remain]) || 0;
 
