@@ -359,10 +359,10 @@ function processRows(values) {
   // O=14 Status(Phase), R=17 Total Value, T=19 Invoiced excl GST, V=21 Remaining to Invoice
   const C = {
     job:      0,
-    ready:    2,
+    ready:    11,
     week:     13,
     status:   14,
-    total:    17,
+    total:    18,
     invoiced: 19,
     remain:   21
   };
@@ -544,10 +544,15 @@ function renderDashboard(d) {
         if (!pts.length) return;
         const clickedIdx = pts[0].index;
         let origIdx;
-        if (activeSplitIdx !== null && weekChart.data.labels.length === 7) {
-          if (clickedIdx === activeSplitIdx || clickedIdx === activeSplitIdx + 1) origIdx = activeSplitIdx;
-          else if (clickedIdx < activeSplitIdx) origIdx = clickedIdx;
-          else origIdx = clickedIdx - 1;
+        if (activeSplitIdx !== null && weekChart.data.labels.length > 6) {
+          // Count how many status slices the active split produced
+          const weekKeys2 = ['wk0_13','wk14_26','wk27_39','wk40_52','wk53_65','wk65plus'];
+          const nSplit = STATUSES_WEEK.filter(s => appData.weekSplit[weekKeys2[activeSplitIdx]].byStatus[s].reduce((a,[,v])=>a+v,0) > 0).length;
+          const splitStart = activeSplitIdx;
+          const splitEnd   = activeSplitIdx + nSplit - 1;
+          if (clickedIdx >= splitStart && clickedIdx <= splitEnd) origIdx = activeSplitIdx;
+          else if (clickedIdx < splitStart) origIdx = clickedIdx;
+          else origIdx = clickedIdx - (nSplit - 1);
         } else {
           origIdx = clickedIdx;
         }
