@@ -362,9 +362,6 @@ function processRows(values) {
     ready:    11,
     week:     13,
     status:   14,
-    colP:     15,
-    colQ:     16,
-    colR:     17,
     invoiced: 19,
     remain:   21
   };
@@ -380,9 +377,11 @@ function processRows(values) {
 
     const ready    = String(row[C.ready] || '').trim().toUpperCase();
     const week     = parseFloat(row[C.week]) || 0;
-    const total    = (parseFloat(row[C.colP]) || 0) + (parseFloat(row[C.colQ]) || 0) + (parseFloat(row[C.colR]) || 0);
-    const invoiced = parseFloat(row[C.invoiced]) || 0;
-    const remain   = parseFloat(row[C.remain]) || 0;
+    const invoicedVal = parseFloat(row[C.invoiced]) || 0;
+    const remainVal   = parseFloat(row[C.remain]) || 0;
+    const total       = invoicedVal + remainVal;
+    const invoiced = invoicedVal;
+    const remain   = remainVal;
 
     // Strip job number prefix for display (e.g. "J3268 - Hitachi..." → "Hitachi...")
     const name = job.replace(/^J\d+\s*-\s*/i, '').trim();
