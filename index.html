@@ -196,11 +196,12 @@
     </div>
 
     <div class="chart-block">
-      <p class="chart-title">Remaining to Invoice<br>by Construction Readiness</p>
+      <p class="chart-title">Remaining to Invoice<br>by Status</p>
       <p class="chart-hint">Click a slice for the project list</p>
       <div class="legend">
-        <span><span class="swatch" style="background:#1a1a1a;"></span><span id="lgReady">Ready</span></span>
-        <span><span class="swatch" style="background:#c0322a;"></span><span id="lgNotReady">Not ready</span></span>
+        <span><span class="swatch" style="background:#c0322a;"></span><span id="lgPrelim">Preliminary</span></span>
+        <span><span class="swatch" style="background:#1a1a1a;"></span><span id="lgConstruction">Construction</span></span>
+        <span><span class="swatch" style="background:#6b6a64;"></span><span id="lgHandover">Waiting Handover</span></span>
       </div>
       <div class="chart-wrap">
         <canvas id="chartRemainingReadiness"></canvas>
@@ -231,6 +232,11 @@
       <span><span class="swatch" style="background:#7a786f;"></span>40&ndash;52 wk <span id="lgW4">—</span></span>
       <span><span class="swatch" style="background:#4f4e48;"></span>53&ndash;65 wk <span id="lgW5">—</span></span>
       <span><span class="swatch" style="background:#1a1a1a;"></span>65+ wk <span id="lgW6">—</span></span>
+    </div>
+    <div class="legend" style="margin-top:4px; font-size:11px;">
+      <span><span class="swatch" style="background:#c0322a;"></span>Preliminary</span>
+      <span><span class="swatch" style="background:#1a1a1a;"></span>Construction</span>
+      <span><span class="swatch" style="background:#6b6a64;"></span>Waiting Handover</span>
     </div>
     <div class="chart-wrap tall">
       <canvas id="chartReadyByWeek"></canvas>
@@ -348,23 +354,17 @@ function processRows(values) {
   }
   if (headerIdx < 0) throw new Error('Could not find header row with "Job" column');
 
-  const headers = values[headerIdx].map(h => String(h).trim().toLowerCase());
-  const colJob      = headers.findIndex(h => h === 'job');
-  const colReady    = headers.findIndex(h => h.includes('consct') || h.includes('ready'));
-  const colWeek     = headers.findIndex(h => h.includes('week'));
-  const colTotal    = headers.findIndex(h => h.includes('total value') || h === 'total value');
-  const colInvoiced = headers.findIndex(h => h === 'invoiced');
-  const colRemain   = headers.findIndex(h => h.includes('remaining'));
-
-  // Fallback column indices based on known structure
-  // Job=0, State=1, Ready=2, AwardDate=3, Week=4, Phase=5, TotalValue=6, Invoiced=7, InvoicedPct=8, Remaining=9
+  // Fixed column indices based on actual Excel structure:
+  // A=0 Job, B=1 State, C=2 Ready, D=3 Award Date, E=4 Program Week
+  // O=14 Status(Phase), R=17 Total Value, T=19 Invoiced excl GST, V=21 Remaining to Invoice
   const C = {
-    job:      colJob      >= 0 ? colJob      : 0,
-    ready:    colReady    >= 0 ? colReady    : 2,
-    week:     colWeek     >= 0 ? colWeek     : 4,
-    total:    colTotal    >= 0 ? colTotal    : 6,
-    invoiced: colInvoiced >= 0 ? colInvoiced : 7,
-    remain:   colRemain   >= 0 ? colRemain   : 9
+    job:      0,
+    ready:    2,
+    week:     4,
+    status:   14,
+    total:    17,
+    invoiced: 19,
+    remain:   21
   };
 
   const projects = [];
@@ -385,7 +385,11 @@ function processRows(values) {
     // Strip job number prefix for display (e.g. "J3268 - Hitachi..." → "Hitachi...")
     const name = job.replace(/^J\d+\s*-\s*/i, '').trim();
 
-    projects.push({ name, ready: ready === 'Y', week, total, invoiced, remain });
+    const statusRaw = String(row[C.status] || '').trim();
+    const status = statusRaw.toLowerCase().includes('waiting') ? 'Waiting Handover'
+                 : statusRaw.toLowerCase().includes('construction') ? 'Construction'
+                 : 'Preliminary';
+    projects.push({ name, ready: ready === 'Y', week, total, invoiced, remain, status });
   }
 
   if (projects.length === 0) throw new Error('No live project rows found — check sheet name or column structure');
@@ -398,12 +402,16 @@ function processRows(values) {
   // Project lists for top pie charts
   const invoicedList  = [...projects].sort((a,b) => b.invoiced - a.invoiced).map(p => [p.name, p.invoiced]);
   const remainList    = [...projects].sort((a,b) => b.remain - a.remain).map(p => [p.name, p.remain]);
-  const readyList     = projects.filter(p => p.ready).sort((a,b) => b.remain - a.remain).map(p => [p.name, p.remain]);
-  const notReadyList  = projects.filter(p => !p.ready).sort((a,b) => b.remain - a.remain).map(p => [p.name, p.remain]);
 
-  // Readiness totals
-  const readyTotal    = projects.filter(p => p.ready).reduce((s,p) => s + p.remain, 0);
-  const notReadyTotal = projects.filter(p => !p.ready).reduce((s,p) => s + p.remain, 0);
+  // Status-based lists
+  const STATUSES = ['Preliminary', 'Construction', 'Waiting Handover'];
+  const statusLists = {};
+  const statusTotals = {};
+  STATUSES.forEach(s => {
+    const filtered = projects.filter(p => p.status === s).sort((a,b) => b.remain - a.remain);
+    statusLists[s]  = filtered.map(p => [p.name, p.remain]);
+    statusTotals[s] = filtered.reduce((sum,p) => sum + p.remain, 0);
+  });
 
   // Week bands
   const bands = [
@@ -420,18 +428,20 @@ function processRows(values) {
 
   bands.forEach(b => {
     const inBand = projects.filter(p => p.week >= b.min && p.week <= b.max);
-    const ready    = inBand.filter(p => p.ready).map(p => [p.name, p.remain]);
-    const notready = inBand.filter(p => !p.ready).map(p => [p.name, p.remain]);
-    const total    = inBand.reduce((s,p) => s + p.remain, 0);
-    weekSplit[b.key] = { ready, notready };
+    const byStatus = {};
+    STATUSES.forEach(s => {
+      byStatus[s] = inBand.filter(p => p.status === s).map(p => [p.name, p.remain]);
+    });
+    const total = inBand.reduce((s,p) => s + p.remain, 0);
+    weekSplit[b.key] = { byStatus };
     baseTotals.push(total);
   });
 
   return {
     totalTCV, totalInvoiced, totalRemain,
     jobCount: projects.length,
-    invoicedList, remainList, readyList, notReadyList,
-    readyTotal, notReadyTotal,
+    invoicedList, remainList,
+    statusLists, statusTotals,
     weekSplit, baseTotals
   };
 }
@@ -449,12 +459,11 @@ function renderDashboard(d) {
   // Legend labels
   const invPct  = pct(d.totalInvoiced, d.totalTCV);
   const remPct  = pct(d.totalRemain, d.totalTCV);
-  const rdyPct  = pct(d.readyTotal, d.totalRemain);
-  const nrdPct  = pct(d.notReadyTotal, d.totalRemain);
   document.getElementById('lgInvoiced').textContent  = `Invoiced ${invPct}%`;
   document.getElementById('lgRemaining').textContent = `Remaining ${remPct}%`;
-  document.getElementById('lgReady').textContent     = `Ready ${rdyPct}%`;
-  document.getElementById('lgNotReady').textContent  = `Not ready ${nrdPct}%`;
+  document.getElementById('lgPrelim').textContent       = `Preliminary ${pct(d.statusTotals['Preliminary'], d.totalRemain)}%`;
+  document.getElementById('lgConstruction').textContent = `Construction ${pct(d.statusTotals['Construction'], d.totalRemain)}%`;
+  document.getElementById('lgHandover').textContent     = `Waiting Handover ${pct(d.statusTotals['Waiting Handover'], d.totalRemain)}%`;
 
   // Week band legend %
   const weekTotal = d.baseTotals.reduce((s,v) => s+v, 0);
@@ -492,12 +501,14 @@ function renderDashboard(d) {
     }
   });
 
-  // ── Readiness pie ──
+  // ── Status pie ──
+  const STATUS_COLORS = { 'Preliminary': '#c0322a', 'Construction': '#1a1a1a', 'Waiting Handover': '#6b6a64' };
+  const STATUSES_ORDER = ['Preliminary', 'Construction', 'Waiting Handover'];
   readinessChart = new Chart(document.getElementById('chartRemainingReadiness'), {
     type: 'pie',
     data: {
-      labels: ['Ready for construction', 'Not ready'],
-      datasets: [{ data: [d.readyTotal, d.notReadyTotal], backgroundColor: ['#1a1a1a','#c0322a'] }]
+      labels: STATUSES_ORDER,
+      datasets: [{ data: STATUSES_ORDER.map(s => d.statusTotals[s]), backgroundColor: STATUSES_ORDER.map(s => STATUS_COLORS[s]) }]
     },
     options: {
       responsive: true, maintainAspectRatio: false,
@@ -508,8 +519,8 @@ function renderDashboard(d) {
       onClick: (evt) => {
         const pts = readinessChart.getElementsAtEventForMode(evt, 'nearest', { intersect: true }, false);
         if (!pts.length) return;
-        if (pts[0].index === 0) showTable('tablePanelTop','tableTitleTop','tableBodyTop', appData.readyList, 'Remaining to Invoice — Ready Projects');
-        else showTable('tablePanelTop','tableTitleTop','tableBodyTop', appData.notReadyList, 'Remaining to Invoice — Not Ready Projects');
+        const status = STATUSES_ORDER[pts[0].index];
+        showStatusTable('tablePanelTop','tableTitleTop','tableBodyTop', appData.statusLists, status, 'Remaining to Invoice — ' + status);
       }
     }
   });
@@ -557,23 +568,29 @@ const weekLabels   = ['0-13 weeks','14-26 weeks','27-39 weeks','40-52 weeks','53
 const baseColors   = ['#e6e5e0','#c7c5bc','#a3a199','#7a786f','#4f4e48','#1a1a1a'];
 const READY_COLOR  = '#1a1a1a';
 const NOTREADY_COLOR = '#c0322a';
-const GREY_COLOR   = '#cfcdc6';
+const GREY_COLOR   = '#ffffff';
 
 function buildCollapsedData() {
   return { labels: weekLabels.slice(), datasets: [{ data: appData.baseTotals.slice(), backgroundColor: baseColors.slice() }] };
 }
 
+const STATUS_COLORS_WEEK = { 'Preliminary': '#c0322a', 'Construction': '#1a1a1a', 'Waiting Handover': '#6b6a64' };
+const STATUSES_WEEK = ['Preliminary', 'Construction', 'Waiting Handover'];
+
 function buildSplitData(splitIdx) {
   const weekKeys = ['wk0_13','wk14_26','wk27_39','wk40_52','wk53_65','wk65plus'];
   const split = appData.weekSplit[weekKeys[splitIdx]];
-  const readySum    = split.ready.reduce((s,[,v]) => s+v, 0);
-  const notReadySum = split.notready.reduce((s,[,v]) => s+v, 0);
   const labels=[], data=[], colors=[];
   for (let i=0; i<weekLabels.length; i++) {
     if (i === splitIdx) {
-      labels.push(weekLabels[i]+' (ready)', weekLabels[i]+' (not ready)');
-      data.push(readySum, notReadySum);
-      colors.push(READY_COLOR, NOTREADY_COLOR);
+      STATUSES_WEEK.forEach(s => {
+        const sum = split.byStatus[s].reduce((a,[,v]) => a+v, 0);
+        if (sum > 0) {
+          labels.push(weekLabels[i]+' ('+s+')');
+          data.push(sum);
+          colors.push(STATUS_COLORS_WEEK[s]);
+        }
+      });
     } else {
       labels.push(weekLabels[i]);
       data.push(appData.baseTotals[i]);
@@ -611,18 +628,44 @@ function showWeekTable(key, title) {
   body.innerHTML = '';
 
   const data = appData.weekSplit[key];
-  const readySum    = data.ready.reduce((s,[,v]) => s+v, 0);
-  const notReadySum = data.notready.reduce((s,[,v]) => s+v, 0);
-  const grandTotal  = readySum + notReadySum;
+  let grandTotal = 0;
 
-  addSectionHeader(body, 'Construction Ready');
-  data.ready.forEach(([name, val]) => addRow(body, name, val));
-  addRow(body, 'Ready Subtotal', readySum, { bold: true });
+  STATUSES_WEEK.forEach(s => {
+    const list = data.byStatus[s];
+    const subtotal = list.reduce((a,[,v]) => a+v, 0);
+    grandTotal += subtotal;
+    addSectionHeader(body, s);
+    if (list.length === 0) addRow(body, 'No projects in this band', null);
+    else list.forEach(([name, val]) => addRow(body, name, val));
+    addRow(body, s + ' Subtotal', subtotal, { bold: true });
+  });
 
-  addSectionHeader(body, 'Not Ready');
-  if (data.notready.length === 0) addRow(body, 'No not-ready projects in this band', null);
-  else data.notready.forEach(([name, val]) => addRow(body, name, val));
-  addRow(body, 'Not Ready Subtotal', notReadySum, { bold: true });
+  addRow(body, 'Grand Total', grandTotal, { grand: true });
+
+  panel.style.display = 'block';
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function showStatusTable(panelId, titleId, bodyId, statusLists, clickedStatus, title) {
+  const panel = document.getElementById(panelId);
+  const body  = document.getElementById(bodyId);
+  document.getElementById(titleId).textContent = title;
+  body.innerHTML = '';
+
+  // Show all 3 statuses, highlight clicked one first
+  const order = [clickedStatus, ...STATUSES_WEEK.filter(s => s !== clickedStatus)];
+  let grandTotal = 0;
+
+  order.forEach(s => {
+    const list = statusLists[s] || [];
+    const subtotal = list.reduce((a,[,v]) => a+v, 0);
+    grandTotal += subtotal;
+    addSectionHeader(body, s);
+    if (list.length === 0) addRow(body, 'No projects', null);
+    else list.forEach(([name, val]) => addRow(body, name, val));
+    addRow(body, s + ' Subtotal', subtotal, { bold: true });
+  });
+
   addRow(body, 'Grand Total', grandTotal, { grand: true });
 
   panel.style.display = 'block';
