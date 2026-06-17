@@ -345,6 +345,15 @@ async function fetchExcelData(token) {
 }
 
 // ─── DATA PROCESSING ──────────────────────────────────────────────────────────
+function parseNum(val) {
+  if (val === null || val === undefined || val === '') return 0;
+  if (typeof val === 'number') return val;
+  // Strip currency formatting: $, commas, spaces
+  const cleaned = String(val).replace(/[$,\s]/g, '').trim();
+  if (cleaned === '' || cleaned === '-') return 0;
+  const n = parseFloat(cleaned);
+  return isNaN(n) ? 0 : n;
+}
 function processRows(values) {
   // Find header row — look for "Job" in column 0
   let headerIdx = -1;
@@ -372,13 +381,14 @@ function processRows(values) {
     const row = values[i];
     const job = String(row[C.job] || '').trim();
 
-    // Stop at TOTAL row or empty job
-    if (!job || job.toUpperCase().startsWith('TOTAL') || job.toUpperCase().startsWith('COMPLETED')) break;
+    // Skip blank rows, stop at TOTAL or COMPLETED section
+    if (!job) continue;
+    if (job.toUpperCase().startsWith('TOTAL') || job.toUpperCase().startsWith('COMPLETED')) break;
 
     const ready    = String(row[C.ready] || '').trim().toUpperCase();
-    const week     = parseFloat(row[C.week]) || 0;
-    const invoicedVal = parseFloat(row[C.invoiced]) || 0;
-    const remainVal   = parseFloat(row[C.remain]) || 0;
+    const week     = parseNum(row[C.week]);
+    const invoicedVal = parseNum(row[C.invoiced]);
+    const remainVal   = parseNum(row[C.remain]);
     const total       = invoicedVal + remainVal;
     const invoiced = invoicedVal;
     const remain   = remainVal;
