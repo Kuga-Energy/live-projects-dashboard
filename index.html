@@ -355,25 +355,37 @@ function parseNum(val) {
   return isNaN(n) ? 0 : n;
 }
 function processRows(values) {
-  // Find header row — look for "Job" in column 0
+  // Find header row — search any column for "Job"
   let headerIdx = -1;
   for (let i = 0; i < values.length; i++) {
-    const cell = String(values[i][0]).trim().toLowerCase();
-    if (cell === 'job') { headerIdx = i; break; }
+    for (let j = 0; j < values[i].length; j++) {
+      const cell = String(values[i][j]).trim().toLowerCase();
+      if (cell === 'job') { headerIdx = i; break; }
+    }
+    if (headerIdx >= 0) break;
   }
   if (headerIdx < 0) throw new Error('Could not find header row with "Job" column');
 
-  // Fixed column indices based on actual Excel structure:
-  // A=0 Job, B=1 State, C=2 Ready, D=3 Award Date, E=4 Program Week
-  // O=14 Status(Phase), R=17 Total Value, T=19 Invoiced excl GST, V=21 Remaining to Invoice
+  // Detect columns dynamically by header name — immune to column insertions
+  const headerRow = values[headerIdx].map(h => String(h).trim().toLowerCase());
+  function findCol(keywords) {
+    return headerRow.findIndex(h => keywords.some(k => h.includes(k)));
+  }
   const C = {
-    job:      0,
-    ready:    11,
-    week:     13,
-    status:   14,
-    invoiced: 19,
-    remain:   21
+    job:      0, // always column A
+    ready:    findCol(['construction ready', 'consct', 'ready']),
+    week:     findCol(['program week', 'programme week', 'prog week']),
+    status:   findCol(['status', 'phase', 'phrase']),
+    invoiced: findCol(['invoiced excl', 'invoiced ex']),
+    remain:   findCol(['remaining to invoice', 'remaining to inv', 'rem to inv'])
   };
+  // Fallback to known indices if header detection fails
+  if (C.ready   < 0) C.ready   = 11;
+  if (C.week    < 0) C.week    = 13;
+  if (C.status  < 0) C.status  = 14;
+  if (C.invoiced < 0) C.invoiced = 19;
+  if (C.remain  < 0) C.remain  = 21;
+  console.log('Detected columns:', C);
 
   const projects = [];
 
