@@ -355,43 +355,49 @@ function parseNum(val) {
   return isNaN(n) ? 0 : n;
 }
 function processRows(values) {
-  // Find header row — search any column for "Job"
+  // Find header row — look for row containing job-related and financial headers
   let headerIdx = -1;
   for (let i = 0; i < values.length; i++) {
-    for (let j = 0; j < values[i].length; j++) {
-      const cell = String(values[i][j]).trim().toLowerCase();
-      if (cell === 'job') { headerIdx = i; break; }
-    }
-    if (headerIdx >= 0) break;
+    const rowLower = values[i].map(c => String(c).trim().toLowerCase());
+    const hasJob      = rowLower.some(c => c === 'job' || c === 'job #' || c === 'job#' || c.startsWith('job'));
+    const hasFinancial = rowLower.some(c => c.includes('invoiced') || c.includes('remaining'));
+    if (hasJob && hasFinancial) { headerIdx = i; break; }
   }
-  if (headerIdx < 0) throw new Error('Could not find header row with "Job" column');
+  // Fallback: just find any row with 'job' anywhere
+  if (headerIdx < 0) {
+    for (let i = 0; i < values.length; i++) {
+      const rowLower = values[i].map(c => String(c).trim().toLowerCase());
+      if (rowLower.some(c => c === 'job' || c === 'job #' || c === 'job#')) { headerIdx = i; break; }
+    }
+  }
+  if (headerIdx < 0) throw new Error('Could not find header row — ensure sheet has a row with Job and financial column headers');
 
   // Detect columns dynamically by header name — immune to column insertions
   const headerRow = values[headerIdx].map(h => String(h).trim().toLowerCase());
   function findCol(keywords) {
     return headerRow.findIndex(h => keywords.some(k => h.includes(k)));
   }
+  // Job column — find "job" or "job #"
+  const jobCol = headerRow.findIndex(h => h === 'job' || h === 'job #' || h === 'job#' || (h.startsWith('job') && h.length <= 5));
   const C = {
-    job:      0, // always column A
+    job:      jobCol >= 0 ? jobCol : 0,
     ready:    findCol(['construction ready', 'consct', 'ready']),
     week:     findCol(['program week', 'programme week', 'prog week']),
     status:   findCol(['status', 'phase', 'phrase']),
     invoiced: findCol(['invoiced excl', 'invoiced ex']),
     remain:   findCol(['remaining to invoice', 'remaining to inv', 'rem to inv'])
   };
-  // Fallback to known indices if header detection fails
-  if (C.ready   < 0) C.ready   = 11;
-  if (C.week    < 0) C.week    = 13;
-  if (C.status  < 0) C.status  = 14;
-  if (C.invoiced < 0) C.invoiced = 19;
-  if (C.remain  < 0) C.remain  = 21;
+  console.log('Header row:', headerRow.slice(0,25));
   console.log('Detected columns:', C);
+  // Validate all critical columns found
+  const missing = Object.entries(C).filter(([k,v]) => v < 0).map(([k]) => k);
+  if (missing.length > 0) throw new Error('Could not find columns: ' + missing.join(', ') + '. Check header names in Excel.');
 
   const projects = [];
 
   for (let i = headerIdx + 1; i < values.length; i++) {
     const row = values[i];
-    const job = String(row[C.job] || '').trim();
+    const job = String(row[C.job] !== undefined ? row[C.job] : '').trim();
 
     // Skip blank rows, stop at TOTAL or COMPLETED section
     if (!job) continue;
